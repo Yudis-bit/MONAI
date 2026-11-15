@@ -1025,6 +1025,34 @@ class TestSlidingWindowStreamingSlab(unittest.TestCase):
         self.assertIsNotNone(x.grad)
         self.assertEqual(x.grad.shape, x.shape)
 
+    def test_streaming_slab_cpu_stitching_device_contract(self):
+        """Verify streaming accumulation can be explicitly kept on the stitching device."""
+        x = torch.randn(1, 2, 32, 30, 28)
+        roi = (12, 11, 10)
+        predictor_devices = []
+
+        def compute(p):
+            predictor_devices.append(p.device)
+            return p * 1.25 - 0.5
+
+        expected = sliding_window_inference(x, roi, 2, lambda p: p * 1.25 - 0.5, overlap=0.4)
+        actual = sliding_window_inference(
+            x,
+            roi,
+            2,
+            compute,
+            overlap=0.4,
+            sw_device="cpu",
+            device="cpu",
+            streaming_slab=True,
+            slab_dim=1,
+        )
+
+        self.assertTrue(predictor_devices)
+        self.assertTrue(all(d.type == "cpu" for d in predictor_devices))
+        self.assertEqual(actual.device.type, "cpu")
+        torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-4)
+
     def test_streaming_slab_batch_indexed_weights(self):
         """Verify process_fn returning per-window weight maps in multi-window chunks."""
         x = torch.randn(1, 1, 16, 16, 16)
